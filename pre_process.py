@@ -3,6 +3,9 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
+IMAGE_WIDTH = 640
+IMAGE_HEIGHT = 480
+
 # 该函数将读取当前目录下的文件夹，并将里面的图片显示出来
 def save_bin_images(dir_path='PV1'):
     # 获取当前目录
@@ -90,6 +93,37 @@ def show_gray_histogram(gray_image):
     plt.ylabel('像素点')
     plt.show()
 
+# 该函数输入一个列表，其中包含许多y坐标值，将这些y坐标值绘制成折线图
+def show_y_coordinate(point_list):
+    x = np.arange(len(point_list))
+    plt.plot(x, IMAGE_HEIGHT -  point_list[:, 1])
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.show()
+
+# 该函数实现一个滑动平均滤波，根据核大小在y坐标上进行滑动平均滤波，头尾进行补0
+def moving_average_filter(point_list, kernel_size = 3):
+    # 核大小为奇数
+    if kernel_size % 2 == 0:
+        raise ValueError('The kernel size must be odd')
+    # 滤波后的点集
+    filtered_points = []
+    # 核的一半大小
+    half_kernel_size = kernel_size // 2
+    # 头部补0
+    for i in range(half_kernel_size):
+        filtered_points.append(point_list[0])
+    # 滑动平均滤波
+    for i in range(len(point_list)):
+        filtered_points.append(point_list[i])
+    # 尾部补0
+    for i in range(half_kernel_size):
+        filtered_points.append(point_list[-1])
+    result = []
+    for i in range(half_kernel_size, len(point_list) + half_kernel_size):
+        result.append([filtered_points[i][0], np.mean(filtered_points[i - half_kernel_size: i + half_kernel_size + 1][1])])
+    return result
+
 # 该函数用于将读取的图片转化为灰度图，在利用otsu算法进行二值化
 def bgr2binary(img):
     # 将图片转化为灰度图
@@ -128,19 +162,50 @@ def find_corners(binary_path = 'PV1_binary/131/1.bmp',draw_enable=False):
     # 绘制凸包角点
     cv2.polylines(img, [hull], True, (0, 0, 255), 2)
     # print(contours[max_contour_index].shape)
+    # 绘制轮廓点
+    hand_contours_points = []
     for i in range(contours[max_contour_index].shape[0]):
-        cv2.circle(img, (contours[max_contour_index][i][0][0], contours[max_contour_index][i][0][1]), 5, (255, 255, 2), -1)
-    # 绘制凸包缺陷点
-    # defects = cv2.convexityDefects(contours[max_contour_index], hull)
-    # print(defects)
+        cv2.circle(img, (contours[max_contour_index][i][0][0], 
+                    contours[max_contour_index][i][0][1]), 
+                    5, (255, 0, 255), -1)
+        hand_contours_points.append(contours[max_contour_index][i][0])
+        # print(contours[max_contour_index][i][0])
+    print(hand_contours_points)
+    print("cnt points num: ",len(hand_contours_points))
+    hand_contours_points_dis = [(IMAGE_WIDTH/2 - point[0])**2 + (IMAGE_HEIGHT - point[1])**2 for point in hand_contours_points]
+    # print("cnt points down: ", min(hand_contours_points, 
+    #                                     key = lambda x: (IMAGE_WIDTH/2 - x[0])**2 + (IMAGE_HEIGHT - x[1])**2))
+    root_point_index = np.argmin(hand_contours_points_dis)
+    print("cnt points down index: ", np.argmin(hand_contours_points_dis))
+    # 把根部点之前的所有点移动到列表末尾
+    hand_contours_points = hand_contours_points[root_point_index:] + hand_contours_points[:root_point_index]
+    # 对轮廓点按x由小到大排序
+    # hand_contours_points = sorted(hand_contours_points, key = lambda x: x[0])
+    # print("cnt points sorted", hand_contours_points)
+    # 对轮廓点的y坐标进行滑动平均滤波
+    # hand_contours_points = np.array(hand_contours_points)
+    hand_contours_points = moving_average_filter(hand_contours_points)
 
-    # for i in range(defects.shape[0]):
-    #     s, e, f, d = defects[i, 0]
-    #     start = tuple(contours[0][s][0])
-    #     end = tuple(contours[0][e][0])
-    #     far = tuple(contours[0][f][0])
-    #     cv2.line(img, start, end, [0, 255, 0], 2)
-    #     cv2.circle(img, far, 5, [0, 0, 255], -1)
+    show_y_coordinate(np.array(hand_contours_points))
+
+    
+    
+    # 手部的轮廓集合
+    # 绘制凸包缺陷点
+    # print(hull.shape)
+    hull = cv2.convexHull(contours[max_contour_index], returnPoints=False)
+    defects = cv2.convexityDefects(contours[max_contour_index], hull)
+    # print(defects.shape)
+
+
+    for i in range(defects.shape[0]):
+        # 起点、终点、凸包缺陷点(最远点)、到最远点的近似距离
+        s, e, f, d = defects[i, 0]
+        start = tuple(contours[max_contour_index][s][0])
+        end = tuple(contours[max_contour_index][e][0])
+        far = tuple(contours[max_contour_index][f][0])
+        cv2.line(img, start, end, [0, 255, 0], 2)
+        cv2.circle(img, far, 25, [0, 0, 255], -1)
         
     
     # contour = max(contours, key= lambda x: cv2.contourArea(x))
@@ -159,11 +224,11 @@ if __name__ == '__main__':
     # save_bin_images('PV2')
     # save_bin_images_for_PPPV('PPPV')
     # binary = cv2.imread('PV1_binary/131/1.bmp',cv2.IMREAD_GRAYSCALE)
-    img = find_corners('PV1_binary/131/1.bmp', True)
+    img = find_corners('PV1_binary/131/2.bmp', True)
     key = 0
-    while True:
-        cv2.imshow('contours', img)
-        key = cv2.waitKey(0)
-        if key == 27:
-            break
+    # while True:
+    #     cv2.imshow('contours', img)
+    #     key = cv2.waitKey(0)
+    #     if key == 27:
+    #         break
     
