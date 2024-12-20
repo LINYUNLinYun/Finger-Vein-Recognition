@@ -2,6 +2,7 @@ import cv2
 import os
 import matplotlib.pyplot as plt
 import numpy as np
+from cv2_util import draw_reticle
 
 IMAGE_WIDTH = 640
 IMAGE_HEIGHT = 480
@@ -112,17 +113,46 @@ def moving_average_filter(point_list, kernel_size = 3):
     half_kernel_size = kernel_size // 2
     # 头部补0
     for i in range(half_kernel_size):
-        filtered_points.append(point_list[0])
+        filtered_points.append([0,480])
     # 滑动平均滤波
     for i in range(len(point_list)):
         filtered_points.append(point_list[i])
     # 尾部补0
     for i in range(half_kernel_size):
-        filtered_points.append(point_list[-1])
+        filtered_points.append([0,480])
     result = []
     for i in range(half_kernel_size, len(point_list) + half_kernel_size):
-        result.append([filtered_points[i][0], np.mean(filtered_points[i - half_kernel_size: i + half_kernel_size + 1][1])])
+        sum = 0
+        for j in range(kernel_size):
+            sum += filtered_points[i - half_kernel_size + j][1]
+        sum += filtered_points[i][1]
+        for j in range(kernel_size):
+            sum += filtered_points[i + half_kernel_size - j][1]
+        sum/= kernel_size
+        result.append([filtered_points[i][0], sum])
     return result
+
+# 该函数创建一个k大小的滑动窗口，用来遍历一维数据找到局部最小值
+def sliding_window_min(data, kernel_size = 5):
+    # 滑动窗口的一半大小
+    half_kernel_size = kernel_size // 2
+    # 局部最小值的索引
+    local_min_index = []
+    # 遍历数据
+    for i in range(half_kernel_size, len(data) - half_kernel_size):
+        is_min = True
+        for j in range(kernel_size):
+            if(data[i - half_kernel_size + j] < data[i]):
+                is_min = False
+                break
+        for j in range(kernel_size):
+            if(data[i + half_kernel_size - j] < data[i]):
+                is_min = False
+                break
+        if is_min:
+            local_min_index.append(i)
+
+    return local_min_index
 
 # 该函数用于将读取的图片转化为灰度图，在利用otsu算法进行二值化
 def bgr2binary(img):
@@ -170,7 +200,7 @@ def find_corners(binary_path = 'PV1_binary/131/1.bmp',draw_enable=False):
                     5, (255, 0, 255), -1)
         hand_contours_points.append(contours[max_contour_index][i][0])
         # print(contours[max_contour_index][i][0])
-    print(hand_contours_points)
+    # print(hand_contours_points)
     print("cnt points num: ",len(hand_contours_points))
     hand_contours_points_dis = [(IMAGE_WIDTH/2 - point[0])**2 + (IMAGE_HEIGHT - point[1])**2 for point in hand_contours_points]
     # print("cnt points down: ", min(hand_contours_points, 
@@ -184,28 +214,38 @@ def find_corners(binary_path = 'PV1_binary/131/1.bmp',draw_enable=False):
     # print("cnt points sorted", hand_contours_points)
     # 对轮廓点的y坐标进行滑动平均滤波
     # hand_contours_points = np.array(hand_contours_points)
-    hand_contours_points = moving_average_filter(hand_contours_points)
+    hand_contours_points = moving_average_filter(hand_contours_points,15)
+    hand_cnt_points_y = IMAGE_HEIGHT - np.array(hand_contours_points)[:,-1]
+    for i in range(hand_cnt_points_y.shape[0]):
+        print(f"- NO.{i}: {hand_cnt_points_y[i]}")
+    local_min_list = sliding_window_min(hand_cnt_points_y,9)
+    print("local min points: ",local_min_list)
+    for l_p in local_min_list:
+        print(f"local min point: ({hand_contours_points[l_p][0]},{hand_contours_points[l_p][1]})")
+        print(type(hand_contours_points[l_p]))
+        # draw_reticle(img, hand_contours_points[l_p][0],hand_contours_points[l_p][1], label_color=(0, 0, 255))
+        cv2.circle(img, (hand_contours_points[l_p]), 10, (0, 0, 255), -1)
+    # for p in hand_cnt_points_y:
+    #     print(p)
 
     show_y_coordinate(np.array(hand_contours_points))
 
     
     
     # 手部的轮廓集合
-    # 绘制凸包缺陷点
+    # 绘制凸包缺陷点，效果不好，废弃
     # print(hull.shape)
-    hull = cv2.convexHull(contours[max_contour_index], returnPoints=False)
-    defects = cv2.convexityDefects(contours[max_contour_index], hull)
+    # hull = cv2.convexHull(contours[max_contour_index], returnPoints=False)
+    # defects = cv2.convexityDefects(contours[max_contour_index], hull)
     # print(defects.shape)
-
-
-    for i in range(defects.shape[0]):
-        # 起点、终点、凸包缺陷点(最远点)、到最远点的近似距离
-        s, e, f, d = defects[i, 0]
-        start = tuple(contours[max_contour_index][s][0])
-        end = tuple(contours[max_contour_index][e][0])
-        far = tuple(contours[max_contour_index][f][0])
-        cv2.line(img, start, end, [0, 255, 0], 2)
-        cv2.circle(img, far, 25, [0, 0, 255], -1)
+    # for i in range(defects.shape[0]):
+    #     # 起点、终点、凸包缺陷点(最远点)、到最远点的近似距离
+    #     s, e, f, d = defects[i, 0]
+    #     start = tuple(contours[max_contour_index][s][0])
+    #     end = tuple(contours[max_contour_index][e][0])
+    #     far = tuple(contours[max_contour_index][f][0])
+    #     cv2.line(img, start, end, [0, 255, 0], 2)
+    #     cv2.circle(img, far, 25, [0, 0, 255], -1)
         
     
     # contour = max(contours, key= lambda x: cv2.contourArea(x))
@@ -224,11 +264,11 @@ if __name__ == '__main__':
     # save_bin_images('PV2')
     # save_bin_images_for_PPPV('PPPV')
     # binary = cv2.imread('PV1_binary/131/1.bmp',cv2.IMREAD_GRAYSCALE)
-    img = find_corners('PV1_binary/131/2.bmp', True)
+    img = find_corners('PV1_binary/134/4.bmp', True)
     key = 0
-    # while True:
-    #     cv2.imshow('contours', img)
-    #     key = cv2.waitKey(0)
-    #     if key == 27:
-    #         break
+    while True:
+        cv2.imshow('contours', img)
+        key = cv2.waitKey(0)
+        if key == 27:
+            break
     
